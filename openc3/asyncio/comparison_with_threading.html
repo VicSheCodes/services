@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+<hr></hr>
+Comparison Table
+Feature
+Threading
+AsyncIO
+Execution
+Multiple OS threads
+Single thread, event loop
+Context Switching
+OS (preemptive)
+Explicit await (cooperative)
+Race Conditions
+❌ Possible (need locks)
+✅ Less likely (single thread)
+Memory
+~8MB per thread
+~3KB per task
+Overhead
+High (OS threads)
+Low (coroutines)
+Max Concurrency
+~1000 threads
+~10,000+ tasks
+Blocking Calls
+✅ Can use (blocks thread)
+❌ Must be async
+CPU-Bound Tasks
+✅ Good (true parallelism with multiprocessing)
+❌ Bad (single thread)
+I/O-Bound Tasks
+✅ Good
+✅ Better!
+Debugging
+Harder (race conditions)
+Easier (predictable switching)
+<hr></hr>
+</body>
+</html>

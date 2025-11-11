@@ -1,0 +1,461 @@
+
+================ Comparison of Threading vs AsyncIO ====================================
+Feature                 Threading                         AsyncIO
+========================================================================================
+Execution               Multiple OS threads               Single thread, event loop
+Context Switching       OS (preemptive)                   Explicit await (cooperative)
+Race Conditions         ❌ Possible (need locks)          ✅ Less likely (single thread)
+Memory                  ~8MB per thread                   ~3KB per task
+Overhead                High (OS threads)                 Low (coroutines)
+Max Concurrency         ~1000 threads                     ~10,000+ tasks
+Blocking Calls          ✅ Can use (blocks thread)        ❌ Must be async
+CPU-Bound Tasks         ✅ Good (true parallelism with multiprocessing)  ❌ Bad (single thread)
+I/O-Bound Tasks         ✅ Good                           ✅ Better!
+Debugging               Harder (race conditions)          Easier (predictable switching)
+
+Q2. What is the difference between threading and asyncio?
+
+Threading uses multiple OS-level threads for concurrency, which is efficient for I/O-bound tasks but can be hindered
+by Python's Global Interpreter Lock (GIL) for CPU-bound work. Asyncio uses a single-threaded, cooperative, event-driven
+model for concurrency, ideal for handling many simultaneous I/O operations with less overhead, but it requires
+rewriting code to use async and await
+
+Q3. What is a coroutine?
+→ A special function defined with async def that can be paused and resumed using await.
+
+Q4. What is the event loop in asyncio?
+→ The core scheduler that executes coroutines, handles I/O, and dispatches tasks cooperatively.
+
+Q5. What is the difference between await and yield?
+
+await → suspends coroutine execution (used in async functions).
+yield → used in generators (sync code).
+await automatically resumes when the awaited object is done.
+
+Both pause execution, but they serve different purposes:
+
+await
+
+Used only in async functions (async def)
+Pauses a coroutine until an async operation completes
+Automatically resumes when the awaited task finishes
+Part of the asyncio concurrency model
+Returns the result of the awaited operation
+
+yield
+
+Used in generators (regular functions)
+Pauses execution and returns a value to the caller
+Requires manual resumption by calling next() or iterating
+Used for lazy iteration, not concurrency
+Can send values back with generator.send()
+
+
+🟡 2. Intermediate Usage
+
+Q6. What are asyncio.Task and asyncio.Future?
+
+Key Difference:
+Future is a container for a result, while Task actively runs a coroutine and stores its result in a Future.
+
+Future → low-level object representing a result that isn’t available yet.
+Task → wraps a coroutine and schedules it to run on the event loop.
+
+
+Both represent asynchronous operations, but at different abstraction levels:
+asyncio.
+
+Future
+Low-level primitive that holds a result that may not exist yet
+Acts as a placeholder for a value that will be available in the future
+Manually set with .set_result() or .set_exception()
+Similar to JavaScript Promises or Java's CompletableFuture
+Rarely created directly in user code
+
+import asyncio
+
+future = asyncio.Future()
+future.set_result(42)  # Manually set the result
+print(await future)     # 42
+
+Q7. How do you run multiple coroutines concurrently?
+
+await asyncio.gather(coro1(), coro2(), coro3())
+
+→ Use asyncio.create_task to schedule coroutines and asyncio.gather to run them concurrently.
+
+Q8. What happens if you forget to await a coroutine?
+→ The coroutine will not execute, and you may get a RuntimeWarning about an unawaited coroutine.
+→ It creates a coroutine object but never runs it — usually triggers a warning:
+
+
+Q9. Can you call an async function from a normal (non-async) function?
+→ Not directly — you need to run it via:
+
+asyncio.run(my_coro())
+
+import asyncio
+
+async def my_coro():
+    print("Coroutine started")
+    await asyncio.sleep(1)
+    print("Coroutine finished")
+    return 42
+
+def main():
+    loop = asyncio.get_event_loop()
+    result = loop.run_until_complete(my_coro())
+    print("Result:", result)
+
+if __name__ == "__main__":
+    main()
+
+Q10. How do you handle exceptions inside coroutines?
+
+ a few asyncio-specific gotchas to watch for:
+
+
+Exceptions raised inside a coroutine propagate to the awaiter — await coro() will raise whatever the coroutine raised.
+asyncio.Task stores exceptions; if you never await a task its exception is logged as "Task exception was never retrieved". Always await tasks or inspect them with task.exception() / add_done_callback.
+asyncio.gather() cancels remaining tasks if one raises (unless return_exceptions=True), so use that flag if you want all results/errors collected.
+Cancellation is special: asyncio.CancelledError should generally be allowed to propagate. If you catch Exception, re-raise CancelledError.
+Use loop.set_exception_handler() for global handling of unhandled exceptions in callbacks/tasks.
+Examples:
+
+try:
+    await my_coro()
+except asyncio.CancelledError:
+    raise
+except Exception as e:
+    handle(e)# python
+    results = await asyncio.gather(coro1(), coro2(), return_exceptions=True)
+    for r in results:
+        if isinstance(r, Exception):
+            handle(r)
+        else:
+            use(r)
+→ Use try/except inside the coroutine or after await:
+
+try:
+    await my_coro()
+except Exception as e:
+    print(e)
+
+Q12. What is asyncio.sleep() used for?
+→ Non-blocking sleep — yields control to other tasks while waiting:
+
+🔵 3. Advanced Concepts
+
+Q13. Explain how asyncio achieves concurrency without threads.
+→ It uses non-blocking I/O and cooperative multitasking — tasks yield execution with await, allowing others to run while waiting for I/O.
+
+Q14. Can asyncio use multiple CPU cores?
+→ Not directly. It runs on a single thread, single core — for CPU-bound work, use concurrent.futures.ProcessPoolExecutor.
+
+Q15. What is the difference between asyncio.create_task() and await?
+
+await runs coroutine sequentially.
+
+create_task() schedules coroutine concurrently.
+
+task = asyncio.create_task(coro())
+# other work...
+await task
+
+
+Q16. How can you mix asyncio with blocking code?
+→ Run blocking code in a thread or process pool:
+
+await asyncio.to_thread(blocking_func)
+
+
+Q17. What are some pitfalls of using asyncio?
+
+Blocking calls (like time.sleep()) freeze the event loop.
+
+Forgetting to await causes silent bugs.
+
+Sharing mutable state between coroutines without locks.
+
+Using too many concurrent tasks without limits.
+
+Q18. How can you cancel a task in asyncio?
+
+task.cancel()
+try:
+    await task
+except asyncio.CancelledError:
+    print("Task was cancelled")
+
+
+Q19. How do you handle timeouts with asyncio?
+
+await asyncio.wait_for(my_coro(), timeout=5)
+
+
+Q20. What is the purpose of async with and async for?
+
+async with → async context managers for non-blocking setup/teardown.
+
+async for → iterate asynchronously over an async iterable (like streams).
+
+
+=================
+1. What is event loop in asyncio?
+
+→ The event loop is the core of every asyncio application. It runs asynchronous tasks and callbacks,
+performs network I/O operations, and manages subprocesses. It continuously checks for tasks that are
+ready to run and executes them, allowing for cooperative multitasking.
+
+
+2. How do you create and run an event loop?
+
+→ You can create and run an event loop using asyncio.run() for a main coroutine:
+
+import asyncio
+
+async def main():
+    print("Hello, Asyncio!")
+
+asyncio.run(main())
+
+Alternatively, you can get the current event loop and run it manually:
+
+import asyncio
+async def main():
+    print("Hello, Asyncio!")
+loop = asyncio.get_event_loop()
+loop.run_until_complete(main())
+
+
+3. What is the difference between asyncio and threading?
+→ asyncio is a single-threaded, cooperative multitasking model that uses an event loop to manage
+concurrent tasks,
+while threading uses multiple OS-level threads for parallel execution.
+Asyncio is more efficient for I/O-bound tasks, whereas threading can be better for CPU-bound tasks.
+
+
+4. How do you create a coroutine in asyncio?
+→ You create a coroutine by defining a function with the async def syntax:
+
+import asyncio
+
+async def my_coroutine():
+    await asyncio.sleep(1)
+    print("Coroutine finished")
+
+
+5. How do you run multiple coroutines concurrently in asyncio?
+→ You can run multiple coroutines concurrently using asyncio.gather() or asyncio.create_task():
+
+import asyncio
+
+async def coro1():
+    await asyncio.sleep(1)
+    print("Coro 1 done")
+
+async def coro2():
+    await asyncio.sleep(2)
+    print("Coro 2 done")
+
+async def main():
+    await asyncio.gather(coro1(), coro2())
+
+asyncio.run(main())
+
+6. What is the purpose of await in asyncio?
+→ The await keyword is used to pause the execution of a coroutine until the awaited
+operation completes. It allows other tasks to run while waiting, enabling concurrency.
+
+7. How do you handle exceptions in asyncio coroutines?
+→ You can handle exceptions in asyncio coroutines using try/except blocks:
+
+import asyncio
+
+async def my_coroutine():
+    try:
+        await asyncio.sleep(1)
+        raise ValueError("An error occurred")
+    except ValueError as e:
+        print(f"Caught exception: {e}")
+
+asyncio.run(my_coroutine())
+
+8. What is an asyncio.Task?
+→ An asyncio.Task is a wrapper for a coroutine that is scheduled to run on the event loop.
+It allows you to manage and monitor the execution of the coroutine.
+You can create a Task using asyncio.create_task():
+
+import asyncio
+
+async def my_coroutine():
+    await asyncio.sleep(1)
+    print("Task finished")
+
+task = asyncio.create_task(my_coroutine())
+await task
+
+9. How do you cancel a running task in asyncio?
+→ You can cancel a running task using the cancel() method:
+
+import asyncio
+
+async def my_coroutine():
+    try:
+        await asyncio.sleep(5)
+    except asyncio.CancelledError:
+        print("Task was cancelled")
+
+task = asyncio.create_task(my_coroutine())
+await asyncio.sleep(1)
+task.cancel()
+
+try:
+    await task
+except asyncio.CancelledError:
+    print("Caught task cancellation")
+
+
+10. What is the difference between asyncio.sleep() and time.sleep()?
+→ asyncio.sleep() is a non-blocking sleep that allows other tasks to run while waiting,
+whereas time.sleep() is a blocking call that halts the entire thread, preventing any other
+tasks from executing.
+
+import asyncio
+
+async def main():
+    print("Starting asyncio sleep")
+    await asyncio.sleep(2)
+    print("Finished asyncio sleep")
+
+asyncio.run(main())
+
+import time
+
+def blocking_sleep():
+    print("Starting blocking sleep")
+    time.sleep(2)
+    print("Finished blocking sleep")
+
+blocking_sleep()
+
+11. How do you limit the number of concurrent tasks in asyncio?
+→ You can limit the number of concurrent tasks using asyncio.Semaphore:
+
+import asyncio
+
+semaphore = asyncio.Semaphore(3)  # Limit to 3 concurrent tasks
+
+async def limited_coro(id):
+    async with semaphore:
+        print(f"Task {id} started")
+        await asyncio.sleep(2)
+        print(f"Task {id} finished")
+
+async def main():
+    tasks = [limited_coro(i) for i in range(10)]
+    await asyncio.gather(*tasks)
+
+asyncio.run(main())
+
+12. What is the purpose of async with in asyncio?
+→ async with is used to work with asynchronous context managers, allowing for non-blocking setup and teardown operations:
+import asyncio
+class AsyncContextManager:
+    async def __aenter__(self):
+        print("Entering context")
+        return self
+    async def __aexit__(self, exc_type, exc, tb):
+        print("Exiting context")
+async def main():
+    async with AsyncContextManager() as cm:
+        print("Inside context")
+asyncio.run(main())
+
+
+13. How do you create an asynchronous iterator in asyncio?
+→ You can create an asynchronous iterator by defining a class with __aiter__() and __anext__() methods:
+import asyncio
+class AsyncIterator:
+    def __init__(self, limit):
+        self.limit = limit
+        self.current = 0
+    def __aiter__(self):
+        return self
+    async def __anext__(self):
+        if self.current < self.limit:
+            await asyncio.sleep(1)  # Simulate async operation
+            self.current += 1
+            return self.current - 1
+        else:
+            raise StopAsyncIteration
+async def main():
+    async for item in AsyncIterator(5):
+        print(item)
+asyncio.run(main())
+
+14. How do you run blocking code in an asyncio application?
+→ You can run blocking code in an asyncio application using asyncio.to_thread():
+import asyncio
+import time
+def blocking_function():
+    time.sleep(2)
+    return "Blocking function result"
+async def main():
+    result = await asyncio.to_thread(blocking_function)
+    print(result)
+asyncio.run(main())
+
+15. What is the difference between asyncio.gather() and asyncio.wait()?
+
+→ asyncio.gather() runs multiple coroutines concurrently and returns their results as a list,
+while asyncio.wait() allows more fine-grained control over task completion, returning two sets:
+done and pending tasks.
+
+import asyncio
+async def coro(id, delay):
+    await asyncio.sleep(delay)
+    return f"Coro {id} done"
+async def main():
+    # Using gather
+    results = await asyncio.gather(coro(1, 2), coro(2,
+    1))
+    print("Gather results:", results)
+    # Using wait
+    tasks = [asyncio.create_task(coro(3, 2)), asyncio.create_task
+        (coro(4, 1))]
+    done, pending = await asyncio.wait(tasks)
+    for task in done:
+        print("Wait result:", task.result())
+asyncio.run(main())
+
+16. How do you set a timeout for a coroutine in asyncio?
+→ You can set a timeout for a coroutine using asyncio.wait_for():
+import asyncio
+
+async def my_coro():
+    await asyncio.sleep(5)
+    return "Completed"
+
+async def main():
+    try:
+        result = await asyncio.wait_for(my_coro(), timeout=2)
+        print(result)
+    except asyncio.TimeoutError:
+        print("Coroutine timed out")
+
+asyncio.run(main())
+
+17. What is the purpose of asyncio.Queue?
+→ asyncio.Queue is used for safe communication between coroutines,
+allowing them to share data without race conditions. It supports asynchronous put and get operations.
+import asyncio
+
+queue = asyncio.Queue()
+async def producer():
+    for i in range(5):
+        await queue.put(i)
+        print(f"Produced {i}")
+async def consumer():
+    for _ in range(5):
+        item = await queue.get()
